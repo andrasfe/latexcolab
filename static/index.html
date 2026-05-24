@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>LaTeX Colab</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" />
+</head>
+<body>
+  <header>
+    <div class="title">
+      LaTeX Colab
+      <span id="current-path" class="current-path"></span>
+    </div>
+    <div class="actions">
+      <button id="save-btn" title="Save current buffer (Cmd/Ctrl+S)">Save</button>
+      <button id="generate-btn" class="primary" title="Compile main.tex (Cmd/Ctrl+Enter)">Generate</button>
+      <span id="status" class="status"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="tree-pane">
+      <div class="pane-header">
+        <span id="project-name">Files</span>
+        <div class="pane-actions">
+          <button id="open-folder" class="icon-btn" title="Open folder…">📂</button>
+          <button id="download-zip" class="icon-btn" title="Download project as zip">⬇</button>
+          <button id="tree-refresh" class="icon-btn" title="Refresh">↻</button>
+        </div>
+      </div>
+      <div id="tree" class="tree"></div>
+    </section>
+    <div id="split-tree" class="splitter"></div>
+
+    <section id="editor-pane">
+      <textarea id="editor"></textarea>
+      <div id="editor-binary" class="empty hidden">Binary file — not editable.</div>
+    </section>
+    <div id="split-editor" class="splitter"></div>
+
+    <section id="pdf-pane">
+      <iframe id="pdf-frame" title="PDF preview" class="hidden"></iframe>
+      <div id="pdf-empty" class="empty">No PDF yet — hit <b>Generate</b>.</div>
+    </section>
+  </main>
+
+  <div id="split-bottom" class="splitter horizontal"></div>
+
+  <footer>
+    <section id="msg-pane">
+      <div class="pane-header"><span>Messages</span>
+        <button id="msg-clear" class="icon-btn" title="Clear">⌫</button>
+      </div>
+      <div id="msg-log" class="log"></div>
+    </section>
+    <div id="split-footer" class="splitter"></div>
+    <section id="git-pane">
+      <div class="pane-header"><span>Git</span>
+        <button id="git-clear" class="icon-btn" title="Clear">⌫</button>
+      </div>
+      <div id="git-log" class="log"></div>
+      <form id="cli-form" class="cli-form">
+        <span class="prompt">git</span>
+        <input id="cli-input" autocomplete="off" spellcheck="false"
+               placeholder="status   |   pull   |   add -A &amp;&amp; commit -m 'msg'   |   push" />
+      </form>
+    </section>
+  </footer>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <dialog id="folder-dialog" class="modal modal-wide">
+    <form method="dialog" id="folder-form">
+      <h3>Open project folder</h3>
+      <div class="path-row">
+        <button id="folder-up" type="button" class="icon-btn" title="Go up">⬆</button>
+        <input id="folder-input" type="text" autocomplete="off" spellcheck="false"
+               placeholder="/absolute/path or ~/relative" />
+        <button id="folder-go" type="button" class="icon-btn" title="Browse this path">↳</button>
+      </div>
+      <div id="folder-list" class="folder-list" tabindex="0"></div>
+      <p class="hint">Single-click to select, double-click to enter a folder.
+        The selected folder is opened as the project on <b>Open</b>.</p>
+      <div class="modal-actions">
+        <button value="cancel" type="submit">Cancel</button>
+        <button value="ok" type="submit" class="primary" id="folder-ok">Open</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/stex/stex.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
