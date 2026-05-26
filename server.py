@@ -382,20 +382,45 @@ def compile_tex() -> JSONResponse:
 
 
 _MISSING_FILE_RE = re.compile(r"! LaTeX Error: File `([^']+)' not found")
+# Font issues: "! Font OT1/pcr/m/n/10=pcrr7t at 10.0pt not loadable: Metric (TFM) file not found."
+_MISSING_FONT_RE = re.compile(
+    r"! Font [^=]+=(\S+?)(?:\s+at|\s+not loadable|/[^\s]*)?\s*(?:not loadable|.*Metric \(TFM\) file not found)"
+)
+# kpathsea / metafont fallback: "! I can't find file `pcrr7t'."
+_KP_MISSING_RE = re.compile(r"! I can't find file `([^']+)'")
+# Tex Live's pdftex too: "!pdfTeX error: pdflatex (file X.enc): cannot open"
+_PDFTEX_MISSING_RE = re.compile(r"pdfTeX (?:error|warning)[^:]*:\s+[^()]*\(file ([^)]+)\):")
 
 
 def _missing_files_from_log(log: str) -> list[str]:
-    """Pull the bare filenames LaTeX complains about (e.g. 'algorithmic.sty')."""
+    """Pull bare filenames LaTeX/pdflatex complains about.
+
+    Covers three error styles:
+      • `! LaTeX Error: File 'X.sty' not found` (missing package)
+      • `! Font OT1/pcr/m/n/10=pcrr7t at 10.0pt not loadable` (missing font TFM)
+      • `! I can't find file 'X'` (kpathsea / mktextfm fallback for fonts)
+    Returns filenames with extensions so tlmgr search --file works directly.
+    """
     seen: set[str] = set()
     out: list[str] = []
-    for m in _MISSING_FILE_RE.finditer(log):
-        name = m.group(1)
-        # If no extension, LaTeX is hinting it's a .sty.
+
+    def add(name: str, default_ext: str) -> None:
+        if not name:
+            return
         if "." not in name:
-            name = name + ".sty"
+            name = name + default_ext
         if name not in seen:
             seen.add(name)
             out.append(name)
+
+    for m in _MISSING_FILE_RE.finditer(log):
+        add(m.group(1), ".sty")
+    for m in _MISSING_FONT_RE.finditer(log):
+        add(m.group(1), ".tfm")
+    for m in _KP_MISSING_RE.finditer(log):
+        add(m.group(1), ".tfm")
+    for m in _PDFTEX_MISSING_RE.finditer(log):
+        add(m.group(1), "")
     return out
 
 
