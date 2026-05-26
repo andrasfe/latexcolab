@@ -22,7 +22,36 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 ROOT = Path(__file__).parent.resolve()
-PROJECT_DIR = (ROOT / "project").resolve()
+CONFIG_PATH = Path.home() / ".latexcolab" / "config.json"
+DEFAULT_PROJECT_DIR = (ROOT / "project").resolve()
+
+
+def _load_last_project() -> Path:
+    """Return the project to open on startup: persisted last folder if it still
+    exists, else the bundled sample project that gets bootstrapped on first run."""
+    import json
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        last = cfg.get("last_project")
+        if last:
+            p = Path(last).expanduser().resolve()
+            if p.exists() and p.is_dir():
+                return p
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_PROJECT_DIR
+
+
+def _save_last_project(path: Path) -> None:
+    import json
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(json.dumps({"last_project": str(path)}), encoding="utf-8")
+    except OSError:
+        pass  # best-effort; not fatal if we can't persist
+
+
+PROJECT_DIR = _load_last_project()
 MAIN_TEX = "main.tex"
 PDF_NAME = "main.pdf"
 
@@ -213,6 +242,7 @@ def set_project(body: ProjectPath) -> dict:
     if not p.is_dir():
         raise HTTPException(400, f"not a directory: {p}")
     PROJECT_DIR = p
+    _save_last_project(PROJECT_DIR)
     return {"ok": True, "path": str(PROJECT_DIR), "name": PROJECT_DIR.name}
 
 
@@ -517,7 +547,13 @@ app.mount("/", StaticFiles(directory=str(ROOT / "static"), html=True), name="sta
 
 
 def _bootstrap_project() -> None:
-    """Create a starter project folder + sample .tex + git repo if missing."""
+    """Create the sample project on first run.
+
+    Only runs when PROJECT_DIR is the bundled default — never writes sample
+    content into a user's remembered folder.
+    """
+    if PROJECT_DIR != DEFAULT_PROJECT_DIR:
+        return
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
     tex = PROJECT_DIR / MAIN_TEX
     if not tex.exists():
