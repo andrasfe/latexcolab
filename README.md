@@ -3,6 +3,83 @@
 A local web app: LaTeX editor on the left, live PDF preview on the right, git
 command line at the bottom.
 
+## Quick start — work on a paper from GitHub
+
+This walks through the end-to-end loop: install LaTeX, clone a paper repo,
+open it in the app, render it, edit, commit, and push.
+
+### 1. Install pdflatex (Homebrew)
+
+```bash
+brew install --cask basictex        # ~100 MB, recommended
+# or
+brew install --cask mactex-no-gui   # full TeX Live, ~4 GB
+```
+
+BasicTeX puts binaries under `/Library/TeX/texbin`. Open a new terminal (or
+`eval "$(/usr/libexec/path_helper)"`) so `pdflatex` is on `PATH`. The server
+will auto-discover it from common install locations either way.
+
+Don't have admin? Use TinyTeX — see the [Setup](#setup) section below.
+
+### 2. Clone the paper repo
+
+The in-app git CLI is whitelisted and doesn't include `clone` for safety, so do
+this once in a terminal:
+
+```bash
+cd ~/papers                  # or anywhere you want it
+git clone git@github.com:you/your-paper.git
+```
+
+### 3. Start the app and open the paper
+
+```bash
+cd ~/path/to/latexcolab
+source .venv/bin/activate
+python server.py
+```
+
+Open <http://localhost:8000>. Click the **📂 Open folder** button at the top of
+the file tree, browse to `~/papers/your-paper`, and click **Open**. The app
+remembers this choice — next launch opens the same folder automatically.
+
+### 4. Generate the PDF
+
+Click **Generate** (or `Cmd/Ctrl+Enter` in the editor). On first run any missing
+TeX packages are auto-installed via `tlmgr` and the compile retries until the
+PDF builds. The rendered PDF appears in the right pane.
+
+### 5. Edit, commit, push to a branch
+
+Edit in the center pane — autosave kicks in 800 ms after you stop typing
+(or `Cmd/Ctrl+S` to force).
+
+In the **git** panel at the bottom-right (the prompt is already prefixed with
+`git`), run, in order:
+
+```
+checkout -b my-changes              # create + switch to a new branch
+status                              # sanity check what changed
+add -A
+commit -m 'Update introduction'
+push -u origin my-changes           # publishes the branch
+```
+
+`&&` chains commands sequentially, so you can also do:
+
+```
+add -A && commit -m 'Update introduction' && push -u origin my-changes
+```
+
+To pull collaborators' changes later: `pull`. Arrow keys cycle history.
+
+> SSH keys (or a credential helper) must already be set up for `push`/`pull` —
+> the server sets `GIT_TERMINAL_PROMPT=0` so it never hangs waiting on a
+> password prompt.
+
+---
+
 ## Setup
 
 ```bash
