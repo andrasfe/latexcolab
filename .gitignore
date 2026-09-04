@@ -6,3 +6,7 @@ __pycache__/
 # project/ is the sample LaTeX workspace bootstrapped by the app on first run.
 # Each user gets their own; not part of the app itself.
 project/
+
+# macOS app build products
+macos/.build/
+macos/build/

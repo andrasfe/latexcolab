@@ -3,6 +3,19 @@
 A local web app: LaTeX editor on the left, live PDF preview on the right, git
 command line at the bottom.
 
+## Native macOS app
+
+A native SwiftUI version lives in [`macos/`](macos/README.md): file tree on the
+left, PDF preview (switchable to a LaTeX editor) on the right, Regenerate,
+Open Folder and Zip export, plus click-to-edit paragraphs with an AI clean-up
+backed by a local LM Studio model. Build it with:
+
+```bash
+cd macos && ./build-app.sh --run
+```
+
+The rest of this README covers the original web app.
+
 ## Quick start — work on a paper from GitHub
 
 This walks through the end-to-end loop: install LaTeX, clone a paper repo,

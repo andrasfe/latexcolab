@@ -1,0 +1,27 @@
+import XCTest
+@testable import LaTeXColabCore
+
+/// Talks to a running LM Studio server. Skipped when the server is down or no
+/// chat model is loaded (loading one on demand can take minutes).
+final class LMStudioIntegrationTests: XCTestCase {
+    func testRealRewrite() async throws {
+        let service = LMStudioService(baseURL: LMStudioService.defaultBaseURL)
+        let models: [LMModel]
+        do { models = try await service.listModels() } catch { throw XCTSkip("LM Studio not reachable: \(error)") }
+        guard let model = models.first(where: { $0.isChatModel && $0.isLoaded })?.id else {
+            throw XCTSkip("no chat model loaded in LM Studio")
+        }
+        let paragraph = "In this paper we shows that the proposed method , which is described in \\cref{sec:method} , outperform the baseline by a large margin (see \\cite{smith2020})."
+        let req = CleanupRequest(paragraph: paragraph, maxWords: 5, instructions: "Keep it formal.", model: model, temperature: 0.1)
+        let result = try await service.cleanUp(req)
+        print("LM Studio (\(model)) →", result.text)
+        XCTAssertFalse(result.text.isEmpty)
+        XCTAssertTrue(result.text.contains("\\cref{sec:method}"), "citation/reference must survive: \(result.text)")
+        XCTAssertTrue(result.text.contains("\\cite{smith2020}"), "citation must survive: \(result.text)")
+        XCTAssertFalse(result.text.contains("```"))
+        XCTAssertFalse(result.text.contains("<think>"))
+        let changed = WordDiff.changedWordCount(WordDiff.diff(old: paragraph, new: result.text))
+        print("changed words:", changed)
+        XCTAssertLessThanOrEqual(changed, 12, "way over the requested limit: \(result.text)")
+    }
+}
