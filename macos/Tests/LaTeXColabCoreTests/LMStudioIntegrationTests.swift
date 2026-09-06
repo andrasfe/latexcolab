@@ -23,5 +23,13 @@ final class LMStudioIntegrationTests: XCTestCase {
         let changed = WordDiff.changedWordCount(WordDiff.diff(old: paragraph, new: result.text))
         print("changed words:", changed)
         XCTAssertLessThanOrEqual(changed, 12, "way over the requested limit: \(result.text)")
+
+        // Semantic comparison on a deliberately altered edit.
+        let altered = "In this paper we show that the proposed method, described in \\cref{sec:method}, matches the baseline (see \\cite{smith2020})."
+        let cmp = try await service.compare(CompareRequest(original: paragraph, edited: altered, model: model))
+        print("compare →", cmp.verdict, cmp.summary, cmp.changes, cmp.meaningDifferences)
+        XCTAssertNotEqual(cmp.verdict, .unknown, cmp.raw)
+        XCTAssertNotEqual(cmp.verdict, .same, "'outperform by a large margin' → 'matches' should not be judged identical: \(cmp.raw)")
+        XCTAssertFalse(cmp.summary.isEmpty)
     }
 }

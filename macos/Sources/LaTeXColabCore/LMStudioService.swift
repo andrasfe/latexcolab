@@ -206,8 +206,13 @@ public final class LMStudioService {
             "max_tokens": 8192,
             "stream": false,
         ]
-        let obj = try await send(request(path: "v1/chat/completions", body: body, timeout: 600))
+        let obj = try await sendChat(body)
         return try LMStudioService.parseResponse(obj)
+    }
+
+    /// POST a chat-completion body to LM Studio and return the decoded JSON.
+    func sendChat(_ body: [String: Any]) async throws -> [String: Any] {
+        try await send(request(path: "v1/chat/completions", body: body, timeout: 600))
     }
 
     static func parseResponse(_ obj: [String: Any]) throws -> CleanupResult {

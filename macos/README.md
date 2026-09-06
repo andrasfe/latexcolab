@@ -58,6 +58,14 @@ The paragraph window has:
   *"Clean up this paragraph but change not more than N words, plus punctuation
   and LaTeX syntax corrections"* plus your extra instructions, and replaces the
   right side with the result.
+- **Compare** – asks the model whether the edit still says the same thing.
+  You get a verdict (same / minor shift / meaning changed), a plain-language
+  list of what changed on the edited side, any meaning differences (claims,
+  numbers, hedges, citations added, removed or altered), plus instant
+  automatic checks that need no model: dropped or added citations,
+  references, labels, environments, math and numbers, and changes in
+  negation, hedging or absolute wording. The panel flags itself as stale when
+  either side changes afterwards.
 - **Save Draft** (⇧⌘S) – stores the rewrite without touching the document.
   Drafts are also autosaved as you type.
 - **Apply** (⌘↩) – writes the rewrite into the `.tex` file and, by default,

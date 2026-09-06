@@ -48,6 +48,11 @@ struct ParagraphEditorView: View {
                      highlights: ranges.new.map { TextHighlight(range: $0, color: Self.insertedColor) })
                     .frame(minWidth: 280)
             }
+            if session.showComparison {
+                Divider()
+                ComparisonPanel(session: session)
+                    .environmentObject(model)
+            }
             Divider()
             controls(changed: changed)
         }
@@ -120,6 +125,12 @@ struct ParagraphEditorView: View {
                 .disabled(session.isBusy)
                 .help("Ask the LM Studio model to clean up the right side: punctuation, LaTeX syntax, and at most the chosen number of word changes")
                 if session.isBusy { ProgressView().controlSize(.small) }
+                Button { model.compareParagraph(session) } label: {
+                    Label(session.isComparing ? "Comparing…" : "Compare", systemImage: "arrow.left.arrow.right.square")
+                }
+                .disabled(session.isComparing || session.isBusy)
+                .help("Compare the two sides semantically: what changed, and does the edit still say the same thing?")
+                if session.isComparing { ProgressView().controlSize(.small) }
                 Text(session.message)
                     .font(.caption)
                     .foregroundStyle(session.messageIsError ? Color.red : Color.secondary)
@@ -144,5 +155,136 @@ struct ParagraphEditorView: View {
             }
         }
         .padding(12)
+    }
+}
+
+
+/// Result of "Compare": deterministic integrity checks plus the model's verdict.
+struct ComparisonPanel: View {
+    @ObservedObject var session: ParagraphSession
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let c = session.comparison {
+                        if !c.summary.isEmpty {
+                            Text(c.summary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                        section("Meaning differences", c.meaningDifferences, color: .red, icon: "exclamationmark.triangle.fill")
+                        section("What changed on the edited side", c.changes, color: .secondary, icon: "pencil")
+                        section("LaTeX issues the model noticed", c.latexIssues, color: .orange, icon: "chevron.left.forwardslash.chevron.right")
+                        if c.verdict == .unknown, !c.raw.isEmpty, c.raw != c.summary {
+                            DisclosureGroup("Raw model output") {
+                                Text(c.raw).font(.caption).textSelection(.enabled)
+                            }
+                            .font(.caption)
+                        }
+                    } else if session.isComparing {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Waiting for the model's verdict…").foregroundStyle(.secondary)
+                        }
+                    } else if !session.messageIsError {
+                        Text("No verdict from the model.").foregroundStyle(.secondary)
+                    }
+                    checks
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 4)
+            }
+            .frame(maxHeight: 220)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            if let c = session.comparison {
+                Label(c.headline, systemImage: icon(for: c.verdict))
+                    .font(.headline)
+                    .foregroundStyle(color(for: c.verdict))
+            } else {
+                Label("Semantic comparison", systemImage: "arrow.left.arrow.right.square")
+                    .font(.headline)
+            }
+            if session.comparisonIsStale {
+                Text("text changed since this comparison")
+                    .font(.caption)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.2), in: Capsule())
+            }
+            Spacer()
+            if let c = session.comparison, c.model != "none", !c.model.isEmpty {
+                Text(c.model).font(.caption).foregroundStyle(.secondary)
+            }
+            Button("Re-run") { model.compareParagraph(session) }
+                .buttonStyle(.borderless)
+                .disabled(session.isComparing)
+            Button { session.showComparison = false } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .help("Hide the comparison")
+        }
+    }
+
+    @ViewBuilder
+    private var checks: some View {
+        let issues = session.integrityIssues
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("Automatic checks").font(.caption.bold()).foregroundStyle(.secondary)
+                Text(issues.isEmpty ? "citations, references, labels, math, numbers, negation and hedging all match" : "\(issues.count) finding\(issues.count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(issues.isEmpty ? Color.green : Color.secondary)
+            }
+            ForEach(issues) { issue in
+                Label {
+                    Text(issue.text).font(.caption).textSelection(.enabled)
+                } icon: {
+                    Image(systemName: issue.severity == .error ? "xmark.octagon.fill" : issue.severity == .warning ? "exclamationmark.triangle.fill" : "info.circle")
+                        .foregroundStyle(issue.severity == .error ? Color.red : issue.severity == .warning ? Color.orange : Color.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ items: [String], color: Color, icon: String) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.caption.bold()).foregroundStyle(.secondary)
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    Label {
+                        Text(item).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    } icon: {
+                        Image(systemName: icon).foregroundStyle(color)
+                    }
+                    .font(.callout)
+                }
+            }
+        }
+    }
+
+    private func icon(for v: SemanticComparison.Verdict) -> String {
+        switch v {
+        case .same: return "checkmark.seal.fill"
+        case .minor: return "equal.circle.fill"
+        case .changed: return "exclamationmark.triangle.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    private func color(for v: SemanticComparison.Verdict) -> Color {
+        switch v {
+        case .same: return .green
+        case .minor: return .orange
+        case .changed: return .red
+        case .unknown: return .secondary
+        }
     }
 }

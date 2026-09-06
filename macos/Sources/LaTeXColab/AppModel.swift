@@ -39,6 +39,20 @@ final class ParagraphSession: ObservableObject, Identifiable {
     var editID: UUID?
     var onChanged: (() -> Void)?
 
+    // Semantic comparison of the two sides
+    @Published var comparison: SemanticComparison?
+    @Published var integrityIssues: [SemanticChecks.Issue] = []
+    @Published var isComparing = false
+    @Published var showComparison = false
+    var comparedOriginal: String?
+    var comparedDraft: String?
+
+    /// True when either side changed after the last comparison ran.
+    var comparisonIsStale: Bool {
+        guard showComparison, comparedDraft != nil else { return false }
+        return comparedDraft != draft || comparedOriginal != original
+    }
+
     init(file: String, range: ParagraphRange, original: String, draft: String,
          maxWords: Int, instructions: String, editID: UUID?, applied: Bool) {
         self.file = file
@@ -635,25 +649,70 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The configured model, or whatever LM Studio currently has loaded.
+    private func resolveLMModel(_ service: LMStudioService, session: ParagraphSession) async -> String? {
+        var model = config.model
+        if model.isEmpty {
+            session.note("Asking LM Studio which model is loaded…")
+            if let models = try? await service.listModels() {
+                lmModels = models
+                model = LMStudioService.pickModel(from: models) ?? ""
+            }
+        }
+        if model.isEmpty {
+            session.note(LMStudioError.noModel.localizedDescription, error: true)
+            openSettings()
+            return nil
+        }
+        return model
+    }
+
+    /// Compare the two sides: instant deterministic checks, then the model's
+    /// semantic verdict on whether the edit still says the same thing.
+    func compareParagraph(_ session: ParagraphSession) {
+        guard !session.isComparing else { return }
+        session.integrityIssues = SemanticChecks.integrity(original: session.original, edited: session.draft)
+        session.comparedOriginal = session.original
+        session.comparedDraft = session.draft
+        session.showComparison = true
+        if session.isInSync {
+            session.comparison = .identical
+            return
+        }
+        session.comparison = nil
+        session.isComparing = true
+        let cfg = config
+        let service = LMStudioService(baseURL: cfg.lmStudioURL)
+        let request = CompareRequest(original: session.original, edited: session.draft, model: "", temperature: min(cfg.temperature, 0.2))
+        Task { [weak self, weak session] in
+            guard let self, let session else { return }
+            guard let model = await self.resolveLMModel(service, session: session) else {
+                session.isComparing = false
+                return
+            }
+            session.note("Comparing the two sides with \(model)…")
+            var req = request
+            req.model = model
+            do {
+                let result = try await service.compare(req)
+                session.comparison = result
+                session.note("Comparison done: \(result.headline.lowercased()) · \(result.model.isEmpty ? model : result.model)")
+            } catch {
+                session.note(error.localizedDescription, error: true)
+            }
+            session.isComparing = false
+        }
+    }
+
     func aiFix(_ session: ParagraphSession) {
         guard !session.isBusy else { return }
         session.isBusy = true
         let cfg = config
         let service = LMStudioService(baseURL: cfg.lmStudioURL)
         Task { [weak self, weak session] in
-            guard let session else { return }
-            var model = cfg.model
-            if model.isEmpty {
-                session.note("Asking LM Studio which model is loaded…")
-                if let models = try? await service.listModels() {
-                    self?.lmModels = models
-                    model = LMStudioService.pickModel(from: models) ?? ""
-                }
-            }
-            guard !model.isEmpty else {
+            guard let self, let session else { return }
+            guard let model = await self.resolveLMModel(service, session: session) else {
                 session.isBusy = false
-                session.note(LMStudioError.noModel.localizedDescription, error: true)
-                self?.openSettings()
                 return
             }
             session.note("Rewriting with \(model) via LM Studio (max \(session.maxWords) words)…")
