@@ -20,24 +20,44 @@ public enum EngineFinder {
     ]
     public static let preference = ["latexmk", "pdflatex", "tectonic"]
 
-    public static func find() -> String? {
-        if let override = ProcessInfo.processInfo.environment["LATEX_ENGINE"], !override.isEmpty {
-            if let p = ProcessRunner.which(override) { return p }
-        }
-        for name in preference {
-            if let p = ProcessRunner.which(name) { return p }
-        }
+    /// Every directory worth searching: PATH, the usual GUI-invisible install
+    /// locations, then TinyTeX / TeX Live globs.
+    public static func searchDirectories() -> [String] {
+        let envPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+        var dirs = envPath.split(separator: ":").map(String.init) + ProcessRunner.extraSearchPaths
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        var dirs: [String] = []
         for g in homeGlobs { dirs += ProcessRunner.glob(home + "/" + g) }
         for g in dirGlobs { dirs += ProcessRunner.glob((g as NSString).expandingTildeInPath) }
+        var seen = Set<String>()
+        return dirs.filter { seen.insert($0).inserted }
+    }
+
+    /// Pick by engine preference across *all* locations, so a TinyTeX latexmk
+    /// beats a Homebrew tectonic even though only the latter is on a GUI app's PATH.
+    public static func pick(from dirs: [String], preference: [String] = preference,
+                            exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> String? {
         for name in preference {
             for d in dirs {
                 let p = (d as NSString).appendingPathComponent(name)
-                if FileManager.default.isExecutableFile(atPath: p) { return p }
+                if exists(p) { return p }
             }
         }
         return nil
+    }
+
+    /// `override` (Settings) or `$LATEX_ENGINE` may be a bare name or a path.
+    public static func find(override: String? = nil) -> String? {
+        let dirs = searchDirectories()
+        for candidate in [override, ProcessInfo.processInfo.environment["LATEX_ENGINE"]] {
+            guard let c = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty else { continue }
+            let expanded = (c as NSString).expandingTildeInPath
+            if expanded.contains("/") {
+                if FileManager.default.isExecutableFile(atPath: expanded) { return expanded }
+            } else if let p = pick(from: dirs, preference: [expanded]) {
+                return p
+            }
+        }
+        return pick(from: dirs)
     }
 
     public static let installHelp = """
@@ -58,24 +78,56 @@ public enum EngineFinder {
 public final class LaTeXCompiler {
     public let projectURL: URL
     public let mainFile: String
+    public let engineOverride: String?
 
-    public init(projectURL: URL, mainFile: String) {
+    public init(projectURL: URL, mainFile: String, engineOverride: String? = nil) {
         self.projectURL = projectURL
         self.mainFile = mainFile
+        self.engineOverride = engineOverride
     }
 
     public var pdfURL: URL {
         projectURL.appendingPathComponent((mainFile as NSString).deletingPathExtension + ".pdf")
     }
 
-    /// Blocking. Run on a background thread.
+    /// Blocking. Run on a background thread. Tries the preferred engine; if it
+    /// fails because of its own environment (missing packages that could not be
+    /// installed, unknown primitives) rather than a LaTeX error in the source,
+    /// the other installed engines are tried in preference order.
     public func compile(progress: ((String) -> Void)? = nil) -> CompileResult {
         guard FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(mainFile).path) else {
             return CompileResult(ok: false, log: "\(mainFile) not found in \(projectURL.path)", pdfURL: nil, engine: nil)
         }
-        guard let engine = EngineFinder.find() else {
+        guard let engine = EngineFinder.find(override: engineOverride) else {
             return CompileResult(ok: false, log: EngineFinder.installHelp, pdfURL: nil, engine: nil)
         }
+        var result = compile(with: engine, progress: progress)
+        if result.ok || (engineOverride?.isEmpty == false) { return result }
+        guard LaTeXCompiler.isEnvironmentFailure(result.log) else { return result }
+        let dirs = EngineFinder.searchDirectories()
+        let alternatives = EngineFinder.preference
+            .compactMap { EngineFinder.pick(from: dirs, preference: [$0]) }
+            .filter { $0 != engine }
+        for alt in alternatives {
+            let name = (alt as NSString).lastPathComponent
+            progress?("\((engine as NSString).lastPathComponent) could not build this document — trying \(name)…")
+            let next = compile(with: alt, progress: progress)
+            let log = result.log + "\n\n=== \((engine as NSString).lastPathComponent) failed for environment reasons; retrying with \(name) ===\n" + next.log
+            result = CompileResult(ok: next.ok, log: log, pdfURL: next.pdfURL, engine: next.engine)
+            if next.ok || !LaTeXCompiler.isEnvironmentFailure(next.log) { break }
+        }
+        return result
+    }
+
+    static let environmentFailure = try! NSRegularExpression(
+        pattern: #"File `[^']+' not found|not loadable: Metric \(TFM\)|I can't find file|Undefined control sequence[\s\S]{0,120}\\(?:pdf|Xe|Lua)|fontspec[^\n]*(?:XeTeX|LuaTeX|XeLaTeX|LuaLaTeX)|requires (?:either )?(?:XeTeX|LuaTeX|XeLaTeX|LuaLaTeX)|tlmgr install [^\n]*\n[\s\S]*?(?:error|failed|not found)|failed to launch"#)
+
+    /// Failures caused by the engine's installation rather than the document.
+    static func isEnvironmentFailure(_ log: String) -> Bool {
+        environmentFailure.firstMatch(in: log, range: NSRange(log.startIndex..., in: log)) != nil
+    }
+
+    private func compile(with engine: String, progress: ((String) -> Void)?) -> CompileResult {
         let engineDir = (engine as NSString).deletingLastPathComponent
         var env = ProcessInfo.processInfo.environment
         let basePath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -109,7 +161,7 @@ public final class LaTeXCompiler {
         // TinyTeX is minimal — install missing packages as the paper asks for them.
         let tlmgr = ProcessRunner.which("tlmgr", extraPaths: [engineDir])
         var tried: Set<String> = []
-        for _ in 0..<5 {
+        for _ in 0..<12 {
             if rc == 0 && FileManager.default.fileExists(atPath: pdfURL.path) { break }
             guard let tlmgr else { break }
             let files = MissingFileDetector.missingFiles(in: log)
@@ -121,11 +173,21 @@ public final class LaTeXCompiler {
             log += "--- auto-installing: \(todo.joined(separator: ", ")) ---\n"
             progress?("Installing \(todo.joined(separator: ", "))…")
             var installedAny = false
+            var selfUpdated = false
             for pkg in todo {
                 tried.insert(pkg)
-                let r = ProcessRunner.run(tlmgr, ["install", pkg], environment: env, timeout: 300)
+                var r = ProcessRunner.run(tlmgr, ["install", pkg], environment: env, timeout: 300)
                 log += "$ tlmgr install \(pkg)\n\(r.output)\n"
-                if r.ok { installedAny = true }
+                // An outdated tlmgr refuses to install until it updates itself.
+                if !selfUpdated && MissingFileDetector.tlmgrNeedsSelfUpdate(r.output) {
+                    selfUpdated = true
+                    progress?("Updating tlmgr…")
+                    let u = ProcessRunner.run(tlmgr, ["update", "--self"], environment: env, timeout: 600)
+                    log += "$ tlmgr update --self\n\(u.output)\n"
+                    r = ProcessRunner.run(tlmgr, ["install", pkg], environment: env, timeout: 300)
+                    log += "$ tlmgr install \(pkg)\n\(r.output)\n"
+                }
+                if r.ok && !MissingFileDetector.tlmgrFailed(r.output) { installedAny = true }
             }
             if !installedAny { break }
             log += "--- retrying compile ---\n"
@@ -169,6 +231,38 @@ public enum MissingFileDetector {
     static let kpMissing = try! NSRegularExpression(pattern: #"! I can't find file `([^']+)'"#)
     static let pdftexMissing = try! NSRegularExpression(pattern: #"pdfTeX (?:error|warning)[^:]*:\s+[^()]*\(file ([^)]+)\):"#)
     static let rerun = try! NSRegularExpression(pattern: #"Rerun to get|There were undefined references|Label\(s\) may have changed"#)
+
+    static let fileLineError = try! NSRegularExpression(pattern: #"(?m)^(\S+\.(?:tex|sty|cls|bib|bbl):\d+: .+)$"#)
+    static let bangError = try! NSRegularExpression(pattern: #"(?m)^! (.+)$"#)
+    static let tectonicError = try! NSRegularExpression(pattern: #"(?m)^error: (.+)$"#)
+
+    /// tlmgr's "remote repository is newer than local … update-tlmgr" refusal.
+    public static func tlmgrNeedsSelfUpdate(_ output: String) -> Bool {
+        let o = output.lowercased()
+        return o.contains("update-tlmgr") || o.contains("tlmgr update --self") || o.contains("repository is newer")
+    }
+
+    /// tlmgr exits 0 in some failure modes; look at the text as well.
+    public static func tlmgrFailed(_ output: String) -> Bool {
+        let o = output.lowercased()
+        return o.contains("terminating") || o.contains("not present in repository") || o.contains("cannot find package")
+    }
+
+    /// The error that stopped the *last* run in a (possibly multi-pass) log,
+    /// for a one-line explanation. Earlier passes may have failed on packages
+    /// that were installed afterwards.
+    public static func firstError(in log: String) -> String? {
+        let ns = log as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        var best: (Int, String)? = nil
+        for re in [fileLineError, bangError, tectonicError] {
+            if let m = re.matches(in: log, range: all).last {
+                let text = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+                if best == nil || m.range.location > best!.0 { best = (m.range.location, text) }
+            }
+        }
+        return best?.1
+    }
 
     public static func needsRerun(log: String) -> Bool {
         rerun.firstMatch(in: log, range: NSRange(log.startIndex..., in: log)) != nil

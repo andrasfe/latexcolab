@@ -107,15 +107,17 @@ struct PDFPane: View {
     var body: some View {
         ZStack(alignment: .top) {
             if let doc = model.previewDocument {
-                PDFPreviewView(document: doc, version: model.previewVersion) { page, point, bounds, text in
-                    model.handlePDFClick(pageIndex: page, pagePoint: point, pageBounds: bounds, nearbyText: text)
+                PDFPreviewView(document: doc, version: model.previewVersion, focus: model.pdfFocus) { page, point, bounds, text, mode in
+                    model.handlePDFClick(pageIndex: page, pagePoint: point, pageBounds: bounds, nearbyText: text, mode: mode)
                 }
-                if let n = model.pdfNotice {
+                if let err = model.compileError {
+                    errorBanner(err)
+                } else if let n = model.pdfNotice {
                     banner(n, color: model.pdfNoticeIsError ? .red : .green)
                 } else if model.pdfStale {
                     banner("Sources changed since this PDF was built — Regenerate (⌘R) to refresh.", color: .orange)
                 } else if model.previewIsMain {
-                    banner("Click any paragraph to open it in the paragraph editor.", color: .secondary)
+                    banner("Click a paragraph · ⌥-click a sentence · select text, then ⌥-click it (or right-click) to edit just that.", color: .secondary)
                         .opacity(0.9)
                 }
             } else if model.projectURL == nil {
@@ -139,6 +141,28 @@ struct PDFPane: View {
                 }
             }
         }
+    }
+
+    /// Persistent, until the next successful compile.
+    private func errorBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+            Text(text)
+                .font(.callout)
+                .lineLimit(3)
+                .textSelection(.enabled)
+            Button("Show Log") { model.showLog = true }
+                .controlSize(.small)
+            Button("Retry") { model.regenerate() }
+                .controlSize(.small)
+                .disabled(model.isCompiling)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.7)))
+        .padding(.top, 8)
+        .padding(.horizontal, 16)
     }
 
     private func banner(_ text: String, color: Color) -> some View {

@@ -79,6 +79,20 @@ final class SyncTeXTests: XCTestCase {
         XCTAssertNil(s.editQuery(page: 2, x: 200, y: y))
     }
 
+    func testDisplayQueryFindsLinesForSourceRange() throws {
+        let s = SyncTeXScanner(text: sample, baseURL: tmp)
+        // main.tex lines 9–10 carry point records inside the first line box.
+        let hit = try XCTUnwrap(s.displayQuery(file: tmp.appendingPathComponent("main.tex"), lines: 8...10))
+        XCTAssertEqual(hit.page, 1)
+        XCTAssertEqual(hit.rect.minX, 8799518 / 65781.76, accuracy: 0.01)
+        XCTAssertEqual(hit.rect.maxY, (19318411 + 127431) / 65781.76, accuracy: 0.01)
+        // body.tex line 3 via the "blank line after" extension (2...2 → 2...3)
+        let body = try XCTUnwrap(s.displayQuery(file: tmp.appendingPathComponent("sections/body.tex"), lines: 2...2))
+        XCTAssertEqual(body.page, 1)
+        XCTAssertNil(s.displayQuery(file: tmp.appendingPathComponent("main.tex"), lines: 40...45))
+        XCTAssertNil(s.displayQuery(file: tmp.appendingPathComponent("nope.tex"), lines: 1...5))
+    }
+
     func testGzipRoundTrip() throws {
         let plain = tmp.appendingPathComponent("sample.synctex")
         try sample.write(to: plain, atomically: true, encoding: .utf8)

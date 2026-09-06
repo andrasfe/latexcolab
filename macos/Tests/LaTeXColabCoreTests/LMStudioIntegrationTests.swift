@@ -20,9 +20,12 @@ final class LMStudioIntegrationTests: XCTestCase {
         XCTAssertTrue(result.text.contains("\\cite{smith2020}"), "citation must survive: \(result.text)")
         XCTAssertFalse(result.text.contains("```"))
         XCTAssertFalse(result.text.contains("<think>"))
-        let changed = WordDiff.changedWordCount(WordDiff.diff(old: paragraph, new: result.text))
-        print("changed words:", changed)
-        XCTAssertLessThanOrEqual(changed, 12, "way over the requested limit: \(result.text)")
+        let raw = EditBudget.measure(original: paragraph, new: result.text)
+        let budget = EditBudget.constrain(original: paragraph, rewrite: result.text, maxWords: req.maxWords)
+        print("model reworded \(raw.wordChanges) words, \(raw.freeFixes) free fixes → kept \(budget.wordsUsed), held back \(budget.dropped.map(\.label))")
+        XCTAssertLessThanOrEqual(budget.wordsUsed, req.maxWords)
+        XCTAssertTrue(budget.text.contains("\\cref{sec:method}"))
+        XCTAssertTrue(budget.text.contains("\\cite{smith2020}"))
 
         // Semantic comparison on a deliberately altered edit.
         let altered = "In this paper we show that the proposed method, described in \\cref{sec:method}, matches the baseline (see \\cite{smith2020})."

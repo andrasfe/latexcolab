@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var temperature = 0.2
     @State private var maxWords = 20.0
     @State private var autoRegen = true
+    @State private var closeAfterApply = true
+    @State private var engine = ""
     @State private var loaded = false
     @State private var refreshing = false
 
@@ -50,11 +52,16 @@ struct SettingsView: View {
                     Text("Default max words to change: \(Int(maxWords))")
                 }
                 Toggle("Regenerate the PDF after Apply", isOn: $autoRegen)
+                Toggle("Close the paragraph window after Apply", isOn: $closeAfterApply)
                 Text("Drafts live in \(model.editsFileName) inside the project folder. Apply writes them into the .tex file.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Build") {
-                LabeledContent("LaTeX engine", value: model.engineName ?? "not found")
+                TextField("LaTeX engine", text: $engine, prompt: Text("automatic — latexmk, pdflatex, then tectonic"))
+                    .onSubmit { save() }
+                Text("A name (latexmk, pdflatex, tectonic, xelatex) or a full path. Searched on PATH, in /Library/TeX/texbin, Homebrew, TinyTeX and TeX Live.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Resolved to", value: model.enginePath ?? "no engine found")
                 LabeledContent("Main file", value: model.mainFile)
                 LabeledContent("Settings file", value: AppConfig.fileURL.path)
             }
@@ -68,6 +75,8 @@ struct SettingsView: View {
             temperature = model.config.temperature
             maxWords = Double(model.config.defaultMaxWords)
             autoRegen = model.config.autoRegenerateAfterApply
+            closeAfterApply = model.config.closeWindowAfterApply
+            engine = model.config.latexEngine
             loaded = true
             Task { await refresh() }
         }
@@ -76,6 +85,8 @@ struct SettingsView: View {
         .onChange(of: temperature) { _, _ in save() }
         .onChange(of: maxWords) { _, _ in save() }
         .onChange(of: autoRegen) { _, _ in save() }
+        .onChange(of: closeAfterApply) { _, _ in save() }
+        .onChange(of: engine) { _, _ in save() }
     }
 
     private func save() {
@@ -85,7 +96,10 @@ struct SettingsView: View {
         model.config.temperature = temperature
         model.config.defaultMaxWords = Int(maxWords)
         model.config.autoRegenerateAfterApply = autoRegen
+        model.config.closeWindowAfterApply = closeAfterApply
+        model.config.latexEngine = engine
         model.saveConfig()
+        model.refreshEngine()
     }
 
     private func refresh() async {

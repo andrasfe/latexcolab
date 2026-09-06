@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// A box record (`(`/`[`/`h`/`v`) from a SyncTeX file, in PDF points (bp)
@@ -206,6 +207,34 @@ public final class SyncTeXScanner {
             if FileManager.default.fileExists(atPath: std.path, isDirectory: &isDir), !isDir.boolValue { return std }
         }
         return nil
+    }
+
+    /// Source → PDF. Returns the 1-based page and the union rectangle (bp,
+    /// top-left origin) of the text lines produced by `lines` of `file`.
+    /// SyncTeX attributes a paragraph's line boxes to the blank line after it,
+    /// so the range is extended by one line.
+    public func displayQuery(file: URL, lines: ClosedRange<Int>) -> (page: Int, rect: CGRect)? {
+        let target = file.standardizedFileURL.path
+        let tags = Set(inputs.keys.filter { fileURL(forTag: $0)?.path == target })
+        guard !tags.isEmpty else { return nil }
+        let range = lines.lowerBound...(lines.upperBound + 1)
+        func isLine(_ b: SyncTeXBox) -> Bool { b.isHorizontal && b.width > 0 && b.height + b.depth <= 60 }
+        var hits = Set<Int>()
+        for (i, b) in boxes.enumerated() where tags.contains(b.tag) && range.contains(b.line) && isLine(b) {
+            hits.insert(i)
+        }
+        for p in points where tags.contains(p.tag) && range.contains(p.line) {
+            if let bi = p.boxIndex, isLine(boxes[bi]) { hits.insert(bi) }
+        }
+        guard !hits.isEmpty else { return nil }
+        var byPage: [Int: [SyncTeXBox]] = [:]
+        for i in hits { byPage[boxes[i].page, default: []].append(boxes[i]) }
+        guard let page = byPage.keys.min(), let list = byPage[page] else { return nil }
+        var rect = CGRect.null
+        for b in list {
+            rect = rect.union(CGRect(x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY))
+        }
+        return (page, rect)
     }
 
     /// PDF → source. `page` is 1-based; `x`/`y` are bp from the page's top-left.

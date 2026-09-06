@@ -25,12 +25,13 @@ final class TextMatcherTests: XCTestCase {
 final class LMStudioServiceTests: XCTestCase {
     func testPromptMentionsLimitAndInstructions() {
         let p = LMStudioService.userPrompt(for: CleanupRequest(paragraph: "Hi", maxWords: 7, instructions: "no em dashes", model: "m"))
-        XCTAssertTrue(p.contains("change not more than 7 words"))
+        XCTAssertTrue(p.contains("at most 7 words"))
         XCTAssertTrue(p.contains("no em dashes"))
         XCTAssertTrue(p.contains("<paragraph>\nHi\n</paragraph>"))
         let zero = LMStudioService.userPrompt(for: CleanupRequest(paragraph: "Hi", maxWords: 0, instructions: "", model: "m"))
-        XCTAssertTrue(zero.contains("Do not change, add, or remove any words"))
+        XCTAssertTrue(zero.contains("Do not add, delete or replace any word"))
         XCTAssertFalse(zero.contains("Additional instructions"))
+        XCTAssertTrue(LMStudioService.systemPrompt.contains("proofreader, not a rewriter"))
     }
 
     func testExtractParagraph() {

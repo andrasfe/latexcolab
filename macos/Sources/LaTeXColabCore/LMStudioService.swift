@@ -87,27 +87,30 @@ public final class LMStudioService {
     // MARK: - Prompt
 
     public static let systemPrompt = """
-    You are a meticulous copy editor working directly on LaTeX source. You receive exactly one paragraph of LaTeX and you reply with the revised paragraph and nothing else: no explanations, no preamble, no code fences, no quotation marks around the result, no <paragraph> tags.
+    You are a proofreader, not a rewriter. The author wrote this LaTeX paragraph in their own words and wants it to stay in their own words.
 
-    Rules:
-    - Preserve every LaTeX command, macro, math expression, citation (\\cite…), reference (\\ref, \\eqref, \\cref…), label, and environment exactly, unless it is syntactically broken and you are fixing the syntax.
-    - Keep the author's meaning and voice. Do not add or remove sentences unless the instructions ask for it.
-    - Keep the paragraph about the same length and keep line breaks close to the input so that diffs stay small.
-    - If the paragraph needs no changes, return it unchanged.
+    Your job:
+    - Fix spelling, grammar, punctuation, capitalization and LaTeX syntax.
+    - Keep the author's wording, sentence order and voice. Do not paraphrase, do not replace words with synonyms, do not merge, split, add or remove sentences, do not "improve" style.
+    - You have a small allowance of word changes for places where a sentence is ungrammatical or unreadable as written. The allowance is stated in the request; stay well inside it. Any change beyond the allowance will be discarded automatically, so spend it only where it matters.
+    - Preserve every LaTeX command, macro, math expression, citation, reference, label and environment exactly, unless it is syntactically broken.
+    - Keep the line breaks of the input.
+
+    Reply with the corrected paragraph and nothing else: no explanations, no code fences, no quotation marks, no <paragraph> tags. If nothing needs fixing, return the paragraph unchanged.
     """
 
     public static func userPrompt(for req: CleanupRequest) -> String {
-        var p = "Clean up this paragraph but change not more than \(req.maxWords) words, plus punctuation and LaTeX syntax corrections."
+        var p: String
         if req.maxWords == 0 {
-            p += " Do not change, add, or remove any words at all; only fix punctuation and LaTeX syntax."
+            p = "Proofread this paragraph. Fix only spelling, punctuation, capitalization and LaTeX syntax. Do not add, delete or replace any word."
         } else {
-            p += " Every added, removed, or replaced word counts toward the limit of \(req.maxWords)."
+            p = "Proofread this paragraph. Fix spelling, punctuation, capitalization and LaTeX syntax freely. Beyond that you may add, delete or replace at most \(req.maxWords) words in total, only to repair grammar or an unreadable phrase — never to reword what is already correct. Keep everything else exactly as the author wrote it."
         }
         let extra = req.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         if !extra.isEmpty {
-            p += "\n\nAdditional instructions from the author: \(extra)"
+            p += "\n\nAdditional instructions from the author (still within the word allowance): \(extra)"
         }
-        p += "\n\nParagraph:\n<paragraph>\n\(req.paragraph)\n</paragraph>\n\nReply with only the revised paragraph."
+        p += "\n\nParagraph:\n<paragraph>\n\(req.paragraph)\n</paragraph>\n\nReply with only the corrected paragraph."
         return p
     }
 

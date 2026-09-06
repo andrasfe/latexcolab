@@ -19,5 +19,6 @@ let package = Package(
             ]
         ),
         .testTarget(name: "LaTeXColabCoreTests", dependencies: ["LaTeXColabCore"]),
+        .testTarget(name: "LaTeXColabAppTests", dependencies: ["LaTeXColab", "LaTeXColabCore"]),
     ]
 )

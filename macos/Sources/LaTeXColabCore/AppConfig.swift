@@ -45,6 +45,15 @@ public struct AppConfig {
         get { raw["temperature"] as? Double ?? 0.2 }
         set { raw["temperature"] = newValue }
     }
+    /// Empty = automatic (latexmk, then pdflatex, then tectonic, anywhere on disk).
+    public var latexEngine: String {
+        get { raw["latex_engine"] as? String ?? "" }
+        set { raw["latex_engine"] = newValue }
+    }
+    public var closeWindowAfterApply: Bool {
+        get { raw["close_window_after_apply"] as? Bool ?? true }
+        set { raw["close_window_after_apply"] = newValue }
+    }
     public var autoRegenerateAfterApply: Bool {
         get { raw["auto_regenerate_after_apply"] as? Bool ?? true }
         set { raw["auto_regenerate_after_apply"] = newValue }

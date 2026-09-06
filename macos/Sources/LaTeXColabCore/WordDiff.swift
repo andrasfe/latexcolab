@@ -8,6 +8,15 @@ public struct DiffSegment: Equatable {
     public let text: String
     public let kind: DiffKind
     public let isWord: Bool
+    /// For `.equal` segments: the token as written on the old side (may differ in whitespace).
+    public let originalText: String
+
+    public init(text: String, kind: DiffKind, isWord: Bool, originalText: String? = nil) {
+        self.text = text
+        self.kind = kind
+        self.isWord = isWord
+        self.originalText = originalText ?? text
+    }
 }
 
 struct DiffToken: Equatable {
@@ -70,7 +79,7 @@ public enum WordDiff {
         while endA > start && endB > start && a[endA - 1].key == b[endB - 1].key { endA -= 1; endB -= 1 }
 
         var segs: [DiffSegment] = []
-        for t in a[0..<start] { segs.append(DiffSegment(text: t.text, kind: .equal, isWord: t.isWord)) }
+        for i in 0..<start { segs.append(DiffSegment(text: b[i].text, kind: .equal, isWord: b[i].isWord, originalText: a[i].text)) }
 
         let ma = Array(a[start..<endA]), mb = Array(b[start..<endB])
         let na = ma.count, nb = mb.count
@@ -79,22 +88,26 @@ public enum WordDiff {
                 for t in ma { segs.append(DiffSegment(text: t.text, kind: .deleted, isWord: t.isWord)) }
                 for t in mb { segs.append(DiffSegment(text: t.text, kind: .inserted, isWord: t.isWord)) }
             } else {
-                // LCS table, then backtrack.
+                // Weighted LCS (matching a word or punctuation mark is worth
+                // more than matching a space, so words never look "moved"
+                // just to line up whitespace), then backtrack.
+                func weight(_ t: DiffToken) -> Int32 { t.key == " " ? 1 : 3 }
                 let w = nb + 1
                 var table = [Int32](repeating: 0, count: (na + 1) * w)
                 for i in stride(from: na - 1, through: 0, by: -1) {
                     for j in stride(from: nb - 1, through: 0, by: -1) {
+                        let skip = max(table[(i + 1) * w + j], table[i * w + j + 1])
                         if ma[i].key == mb[j].key {
-                            table[i * w + j] = table[(i + 1) * w + j + 1] + 1
+                            table[i * w + j] = max(skip, table[(i + 1) * w + j + 1] + weight(ma[i]))
                         } else {
-                            table[i * w + j] = max(table[(i + 1) * w + j], table[i * w + j + 1])
+                            table[i * w + j] = skip
                         }
                     }
                 }
                 var i = 0, j = 0
                 while i < na && j < nb {
-                    if ma[i].key == mb[j].key {
-                        segs.append(DiffSegment(text: mb[j].text, kind: .equal, isWord: mb[j].isWord))
+                    if ma[i].key == mb[j].key && table[i * w + j] == table[(i + 1) * w + j + 1] + weight(ma[i]) {
+                        segs.append(DiffSegment(text: mb[j].text, kind: .equal, isWord: mb[j].isWord, originalText: ma[i].text))
                         i += 1; j += 1
                     } else if table[(i + 1) * w + j] >= table[i * w + j + 1] {
                         segs.append(DiffSegment(text: ma[i].text, kind: .deleted, isWord: ma[i].isWord))
@@ -108,7 +121,7 @@ public enum WordDiff {
                 while j < nb { segs.append(DiffSegment(text: mb[j].text, kind: .inserted, isWord: mb[j].isWord)); j += 1 }
             }
         }
-        for t in b[endB..<m] { segs.append(DiffSegment(text: t.text, kind: .equal, isWord: t.isWord)) }
+        for k in 0..<(m - endB) { segs.append(DiffSegment(text: b[endB + k].text, kind: .equal, isWord: b[endB + k].isWord, originalText: a[endA + k].text)) }
         return segs
     }
 
