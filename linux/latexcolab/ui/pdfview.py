@@ -17,6 +17,8 @@ from ..core import pdfdoc
 
 PAGE_GAP = 14
 MARGIN = 10
+#: A press must travel this far before it counts as a selection drag, not a click.
+DRAG_THRESHOLD = 4
 
 SELECTION_RGBA = (0.20, 0.51, 0.89, 0.30)
 FLASH_RGBA = (0.98, 0.75, 0.18, 0.45)
@@ -201,6 +203,7 @@ class PdfView(Gtk.ScrolledWindow):
         self._flash_handle: int | None = None
         self._press: tuple[float, float] | None = None
         self._press_modifiers = 0
+        self._dragging = False
         #: The current drag selection: ``(text, start_page, start_pt, end_page, end_pt)``.
         self.selection: tuple[str, int, tuple[float, float], int, tuple[float, float]] | None = None
         self._menu_point: tuple[float, float] | None = None
@@ -353,7 +356,7 @@ class PdfView(Gtk.ScrolledWindow):
         self._press = None
         if press is None or n_press > 1:
             return
-        if abs(x - press[0]) > 4 or abs(y - press[1]) > 4:
+        if abs(x - press[0]) > DRAG_THRESHOLD or abs(y - press[1]) > DRAG_THRESHOLD:
             return
         state = self._press_modifiers
         # ⌥ (Alt) = sentence / selection; Ctrl and Shift are left alone.
@@ -380,21 +383,29 @@ class PdfView(Gtk.ScrolledWindow):
             self._handle_click(x, y, kind == MODE_SENTENCE, ignore_selection=True)
 
     def _on_drag_begin(self, gesture, x, y):
-        self.clear_selection()
+        # GtkGestureDrag fires this on *every* button press, a plain click
+        # included, so the current selection must survive until the pointer
+        # really moves — an Alt-click inside a selection has to still see it.
+        # (PDFKit needed the same care; the macOS view snapshots the selection
+        # at mouse-down for exactly this reason.)
+        self._dragging = False
 
     def _on_drag_update(self, gesture, dx, dy):
+        if not self._dragging:
+            if abs(dx) < DRAG_THRESHOLD and abs(dy) < DRAG_THRESHOLD:
+                return
+            self._dragging = True
         ok, sx, sy = gesture.get_start_point()
-        if not ok:
-            return
-        self._update_selection(sx, sy, sx + dx, sy + dy)
+        if ok:
+            self._update_selection(sx, sy, sx + dx, sy + dy)
 
     def _on_drag_end(self, gesture, dx, dy):
+        if not self._dragging:
+            return
+        self._dragging = False
         ok, sx, sy = gesture.get_start_point()
-        if not ok:
-            return
-        if abs(dx) < 4 and abs(dy) < 4:
-            return
-        self._update_selection(sx, sy, sx + dx, sy + dy)
+        if ok:
+            self._update_selection(sx, sy, sx + dx, sy + dy)
 
     def _update_selection(self, x0, y0, x1, y1) -> None:
         start = self.canvas.point_to_page(x0, y0)
@@ -441,8 +452,16 @@ class PdfView(Gtk.ScrolledWindow):
 
         if (option or force_selection) and not ignore_selection and self.selection:
             text, start_page, start_pt, end_page, end_pt = self.selection
-            inside = any(b.inset(-6, -6).contains(px, py)
-                         for i, b in self.canvas.selection_boxes if i == index)
+            # "Inside the selection" is judged per text line: the union of the
+            # selected words on the line under the pointer, widened a little so
+            # the gaps between words still count. A whole-selection bounding box
+            # (what PDFKit used) would also swallow the line below a two-line
+            # selection, sending an Alt-click there to the wrong span.
+            line = None
+            for i, b in self.canvas.selection_boxes:
+                if i == index and b.y0 - 2 <= py <= b.y1 + 2:
+                    line = b if line is None else line.union(b)
+            inside = line is not None and line.inset(-6, 0).contains(px, py)
             if force_selection or inside:
                 self.on_click(start_page, start_pt[0], start_pt[1], nearby,
                               (MODE_SELECTION, text, end_page, end_pt[0], end_pt[1]))
