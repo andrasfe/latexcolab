@@ -10,3 +10,6 @@ project/
 # macOS app build products
 macos/.build/
 macos/build/
+
+# Linux app build products
+linux/build/

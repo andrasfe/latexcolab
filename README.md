@@ -3,16 +3,28 @@
 A local web app: LaTeX editor on the left, live PDF preview on the right, git
 command line at the bottom.
 
-## Native macOS app
+## Native desktop apps
 
-A native SwiftUI version lives in [`macos/`](macos/README.md): file tree on the
-left, PDF preview (switchable to a LaTeX editor) on the right, Regenerate,
-Open Folder and Zip export, plus click-to-edit paragraphs with an AI clean-up
-backed by a local LM Studio model. Build it with:
+The same app exists natively on both desktops: file tree on the left, PDF
+preview (switchable to a LaTeX editor) on the right, Regenerate, Open Folder
+and Zip export, plus click-to-edit paragraphs with an AI clean-up backed by a
+local LM Studio model, and git.
 
-```bash
-cd macos && ./build-app.sh --run
-```
+- **macOS** — SwiftUI, in [`macos/`](macos/README.md):
+
+  ```bash
+  cd macos && ./build-app.sh --run
+  ```
+
+- **Linux** — GTK4 / libadwaita, in [`linux/`](linux/README.md):
+
+  ```bash
+  cd linux && ./build-app.sh --run        # builds ./build/latexcolab
+  cd linux && ./build-app.sh --install    # + menu entry and icon in ~/.local
+  ```
+
+Both read the same `~/.latexcolab/config.json` and the same per-project
+`latexcolab-edits.json`, so a paper folder moves between them unchanged.
 
 The rest of this README covers the original web app.
 

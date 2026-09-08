@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=LaTeX Colab
+GenericName=LaTeX Editor
+Comment=LaTeX editor with live PDF preview, click-to-edit paragraphs and git
+Exec=@EXEC@ %f
+Icon=dev.latexcolab.LaTeXColab
+Terminal=false
+Categories=Office;Publishing;WordProcessor;Utility;TextEditor;
+Keywords=LaTeX;TeX;PDF;paper;writing;
+StartupNotify=true
+StartupWMClass=dev.latexcolab.LaTeXColab
+MimeType=inode/directory;text/x-tex;

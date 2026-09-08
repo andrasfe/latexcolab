@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- App icon: the same rounded teal square with a page and "TeX" as the macOS icns. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d6b8c"/>
+      <stop offset="1" stop-color="#05385c"/>
+    </linearGradient>
+  </defs>
+  <rect x="31" y="31" width="450" height="450" rx="113" ry="113" fill="url(#bg)"/>
+  <rect x="123" y="92" width="266" height="328" rx="15" ry="15" fill="#ffffff" fill-opacity="0.92"/>
+  <g fill="#8c8c8c">
+    <rect x="164" y="133" width="186" height="18" rx="5"/>
+    <rect x="164" y="179" width="186" height="18" rx="5"/>
+    <rect x="164" y="225" width="186" height="18" rx="5"/>
+    <rect x="164" y="271" width="120" height="18" rx="5"/>
+  </g>
+  <text x="256" y="392" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="113"
+        font-weight="800" text-anchor="middle" fill="#0d6b8c">TeX</text>
+</svg>
