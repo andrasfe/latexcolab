@@ -3,6 +3,7 @@
 
 import json
 import os
+import xml.etree.ElementTree as ET
 import shutil
 import tempfile
 import unittest
@@ -85,6 +86,42 @@ class PDFDocumentTests(unittest.TestCase):
         data = pdfdoc.render_png(self.doc.path, 0, 96)
         self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"), data[:8])
         self.assertGreater(len(data), 4000)
+
+
+class BboxParsingTests(unittest.TestCase):
+    """pdftotext copies glyph text through verbatim, so a font whose ToUnicode
+    maps to a C0 control character yields XML that ElementTree rejects. That
+    used to lose every word in the document, silently."""
+
+    XML = ("""<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><doc>
+  <page width="612.0" height="792.0">
+    <flow><block><line xMin="70" yMin="100" xMax="300" yMax="112">
+      <word xMin="70" yMin="100" xMax="120" yMax="112">Certifying</word>
+      <word xMin="125" yMin="100" xMax="160" yMax="112">\u0001</word>
+      <word xMin="165" yMin="100" xMax="220" yMax="112">Witnesses</word>
+    </line></block></flow>
+  </page>
+</doc></body></html>""")
+
+    def _document(self):
+        doc = pdfdoc.PDFDocument.__new__(pdfdoc.PDFDocument)
+        doc.pages = []
+        doc.text_error = None
+        return doc
+
+    def test_control_characters_are_dropped_not_fatal(self):
+        doc = self._document()
+        cleaned = pdfdoc._INVALID_XML_CHARS.sub("", self.XML)
+        doc._parse_bbox(cleaned)
+        self.assertEqual([w.text for w in doc.pages[0].words],
+                         ["Certifying", "Witnesses"])
+        self.assertTrue(doc.has_text)
+
+    def test_raw_control_character_would_break_the_parser(self):
+        doc = self._document()
+        with self.assertRaises(ET.ParseError):
+            doc._parse_bbox(self.XML)
 
 
 class ZipExportTests(unittest.TestCase):

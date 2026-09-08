@@ -26,6 +26,14 @@ class PDFError(Exception):
     pass
 
 
+#: XML 1.0 forbids most control characters, but pdftotext copies glyph text
+#: straight through — a font whose ToUnicode maps to U+0001 (common in maths
+#: and symbol fonts) produces a document ElementTree refuses outright. Dropping
+#: those characters costs nothing: the affected "word" carries no text anyway.
+_INVALID_XML_CHARS = re.compile(
+    "[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]")
+
+
 @dataclass(frozen=True)
 class Box:
     x0: float
@@ -142,6 +150,8 @@ class PDFDocument:
         except OSError as exc:
             raise PDFError(f"cannot read {self.path}: {exc}") from exc
         self.pages: list[Page] = []
+        #: Why word boxes are unavailable, when they are.
+        self.text_error: str | None = None
         self._load_geometry()
 
     @property
@@ -164,14 +174,20 @@ class PDFDocument:
 
     def _load_geometry(self) -> None:
         pdftotext = process.which("pdftotext")
-        if pdftotext:
+        if not pdftotext:
+            self.text_error = "pdftotext not found — install poppler-utils"
+        else:
             r = process.run(pdftotext, ["-bbox-layout", self.path, "-"], timeout=60)
-            if r.ok and "<page" in r.output:
+            if not r.ok:
+                self.text_error = "pdftotext failed: " + r.output.strip()[:200]
+            elif "<page" not in r.output:
+                self.text_error = "this PDF has no extractable text"
+            else:
                 try:
-                    self._parse_bbox(r.output)
+                    self._parse_bbox(_INVALID_XML_CHARS.sub("", r.output))
                     return
-                except ET.ParseError:
-                    pass
+                except ET.ParseError as exc:
+                    self.text_error = f"could not read the text layout: {exc}"
         # No poppler-utils, or an image-only PDF: fall back to page sizes only,
         # so rendering and SyncTeX clicks still work (text matching does not).
         self._load_page_sizes()
