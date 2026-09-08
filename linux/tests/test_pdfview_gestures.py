@@ -1,9 +1,8 @@
-"""Gesture sequencing in the PDF view.
+"""Input sequencing in the PDF view.
 
-GTK delivers a button press to every controller on the widget, so one press
-fires both ``GtkGestureClick::pressed`` and ``GtkGestureDrag::drag-begin``.
-These tests replay that exact order, which is what a real mouse produces and
-what the headless checks (calling ``_handle_click`` directly) could not cover.
+Selection comes from GtkGestureClick plus a GtkEventControllerMotion, so a
+mouse produces press → motion* → release. These tests replay that exact order,
+which the headless checks (calling ``_handle_click`` directly) could not cover.
 """
 
 import os
@@ -27,16 +26,6 @@ Every witness is source-certified and peer-matched against generated Java
 under the declared projection, including byte-exact final output files.
 Post-study local search covers many source branch outcomes.
 \\end{document}"""
-
-
-class _FakeDrag:
-    """Stands in for GtkGestureDrag: only get_start_point() is consulted."""
-
-    def __init__(self, x, y):
-        self._point = (x, y)
-
-    def get_start_point(self):
-        return True, self._point[0], self._point[1]
 
 
 class PdfViewGestureTests(unittest.TestCase):
@@ -78,24 +67,29 @@ class PdfViewGestureTests(unittest.TestCase):
     def word(self, prefix):
         return next(w for w in self.page.words if w.text.lower().startswith(prefix))
 
-    def press(self, x, y, alt=False):
-        """One button-1 press, as GTK delivers it to both controllers."""
-        state = Gdk.ModifierType.ALT_MASK if alt else 0
-        self.view._press = (x, y)
-        self.view._press_modifiers = state
-        self.view._on_drag_begin(_FakeDrag(x, y), x, y)
+    class _Gesture:
+        """Stands in for GtkGestureClick; only the modifier state is consulted."""
 
-    def release(self, x, y, press_x=None, press_y=None):
-        """Button release: GestureClick::released, then GestureDrag::drag-end."""
-        px = press_x if press_x is not None else x
-        py = press_y if press_y is not None else y
-        self.view._on_released(None, 1, x, y)
-        self.view._on_drag_end(_FakeDrag(px, py), x - px, y - py)
+        def __init__(self, state):
+            self._state = state
+
+        def get_current_event_state(self):
+            return self._state
+
+    def press(self, x, y, alt=False):
+        state = Gdk.ModifierType.ALT_MASK if alt else 0
+        self.view._on_pressed(self._Gesture(state), 1, x, y)
+
+    def motion(self, x, y):
+        self.view._on_motion(None, x, y)
+
+    def release(self, x, y, n_press=1):
+        self.view._on_released(None, n_press, x, y)
 
     def drag(self, start, end):
         self.press(*start)
-        self.view._on_drag_update(_FakeDrag(*start), end[0] - start[0], end[1] - start[1])
-        self.release(end[0], end[1], start[0], start[1])
+        self.motion(*end)
+        self.release(*end)
 
     # -- tests -------------------------------------------------------------
 
@@ -115,6 +109,13 @@ class PdfViewGestureTests(unittest.TestCase):
         self.assertEqual(mode[0], MODE_SENTENCE)
         self.assertTrue(mode[1].lower().startswith("post-study"), mode[1])
 
+    def test_motion_below_the_threshold_starts_no_selection(self):
+        start = self.widget_point(self.word("every"))
+        self.press(*start)
+        self.motion(start[0] + 2, start[1] + 1)
+        self.assertIsNone(self.view.selection)
+        self.assertEqual(self.view.canvas.selection_boxes, [])
+
     def test_drag_builds_a_selection(self):
         self.drag(self.widget_point(self.word("every")),
                   self.widget_point(self.word("projection"), at_end=True))
@@ -125,15 +126,15 @@ class PdfViewGestureTests(unittest.TestCase):
         self.assertEqual(self.clicks, [])
 
     def test_alt_click_inside_a_selection_edits_the_selection(self):
-        """The regression: GtkGestureDrag fires drag-begin on the Alt-click's own
-        press, so a naive drag-begin handler wipes the selection first."""
+        """The regression: the Alt-click's own press must not wipe the selection
+        before the release handler gets to read it."""
         start = self.widget_point(self.word("every"))
         end = self.widget_point(self.word("projection"), at_end=True)
         self.drag(start, end)
         selected = self.view.selection[0]
 
         middle = ((start[0] + end[0]) / 2, start[1])
-        self.press(*middle, alt=True)
+        self.press(middle[0], middle[1], alt=True)
         self.assertIsNotNone(self.view.selection,
                              "the press must not clear the selection")
         self.release(*middle)
@@ -165,8 +166,8 @@ class PdfViewGestureTests(unittest.TestCase):
     def test_a_click_that_twitches_is_still_a_click(self):
         x, y = self.widget_point(self.word("witness"))
         self.press(x, y)
-        self.view._on_drag_update(_FakeDrag(x, y), 2, 1)   # below the threshold
-        self.release(x + 2, y + 1, x, y)
+        self.motion(x + 2, y + 1)      # below the threshold
+        self.release(x + 2, y + 1)
         self.assertEqual(len(self.clicks), 1)
         self.assertEqual(self.clicks[0][4][0], MODE_PARAGRAPH)
         self.assertIsNone(self.view.selection)

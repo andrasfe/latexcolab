@@ -8,12 +8,27 @@ selections map back to LaTeX exactly as PDFKit's selections did.
 
 from __future__ import annotations
 
+import os
+import sys
 import threading
 from typing import Callable
 
-from gi.repository import Gdk, Gio, GLib, Graphene, Gsk, Gtk
+import gi
+
+gi.require_version("Gsk", "4.0")
+
+from gi.repository import Gdk, Gio, GLib, Graphene, Gsk, Gtk  # noqa: E402
 
 from ..core import pdfdoc
+
+#: LATEXCOLAB_DEBUG=1 traces click and selection handling to stderr.
+DEBUG = bool(os.environ.get("LATEXCOLAB_DEBUG"))
+
+
+def _debug(message: str, *args) -> None:
+    if DEBUG:
+        print("pdf-input: " + (message % args if args else message), file=sys.stderr)
+
 
 PAGE_GAP = 14
 MARGIN = 10
@@ -208,6 +223,11 @@ class PdfView(Gtk.ScrolledWindow):
         self.selection: tuple[str, int, tuple[float, float], int, tuple[float, float]] | None = None
         self._menu_point: tuple[float, float] | None = None
 
+        # Selection is driven by the click gesture plus a plain motion
+        # controller rather than a second GtkGestureDrag: two GtkGestureSingles
+        # on one widget compete for the same event sequence, and whichever
+        # claims it silences the other. GtkEventControllerMotion takes no part
+        # in that arbitration, so press → motion → release always arrives.
         click = Gtk.GestureClick()
         click.set_button(1)
         click.connect("pressed", self._on_pressed)
@@ -219,11 +239,9 @@ class PdfView(Gtk.ScrolledWindow):
         secondary.connect("pressed", self._on_secondary)
         self.canvas.add_controller(secondary)
 
-        drag = Gtk.GestureDrag()
-        drag.connect("drag-begin", self._on_drag_begin)
-        drag.connect("drag-update", self._on_drag_update)
-        drag.connect("drag-end", self._on_drag_end)
-        self.canvas.add_controller(drag)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_motion)
+        self.canvas.add_controller(motion)
 
         scroll = Gtk.EventControllerScroll(
             flags=Gtk.EventControllerScrollFlags.VERTICAL)
@@ -350,16 +368,41 @@ class PdfView(Gtk.ScrolledWindow):
     def _on_pressed(self, gesture, n_press, x, y):
         self._press = (x, y)
         self._press_modifiers = gesture.get_current_event_state()
+        # The selection must survive the press: an Alt-click inside one has to
+        # still see it. It is only replaced once the pointer actually travels.
+        self._dragging = False
+        _debug("press at (%.0f, %.0f) modifiers=%s", x, y, self._press_modifiers)
+
+    def _on_motion(self, controller, x, y):
+        press = self._press
+        if press is None:
+            return
+        if not self._dragging:
+            if (abs(x - press[0]) < DRAG_THRESHOLD
+                    and abs(y - press[1]) < DRAG_THRESHOLD):
+                return
+            self._dragging = True
+            _debug("drag started from (%.0f, %.0f)", press[0], press[1])
+        self._update_selection(press[0], press[1], x, y)
 
     def _on_released(self, gesture, n_press, x, y):
         press = self._press
+        dragged = self._dragging
         self._press = None
-        if press is None or n_press > 1:
+        self._dragging = False
+        if press is None:
+            return
+        if dragged:
+            self._update_selection(press[0], press[1], x, y)
+            _debug("drag ended: %d words selected",
+                   len(self.canvas.selection_boxes))
+            return
+        if n_press > 1:
             return
         if abs(x - press[0]) > DRAG_THRESHOLD or abs(y - press[1]) > DRAG_THRESHOLD:
             return
         state = self._press_modifiers
-        # ⌥ (Alt) = sentence / selection; Ctrl and Shift are left alone.
+        # Alt = sentence / selection; Ctrl and Shift are left alone.
         if state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
             return
         option = bool(state & Gdk.ModifierType.ALT_MASK)
@@ -381,31 +424,6 @@ class PdfView(Gtk.ScrolledWindow):
             self._handle_click(x, y, True, force_selection=True)
         else:
             self._handle_click(x, y, kind == MODE_SENTENCE, ignore_selection=True)
-
-    def _on_drag_begin(self, gesture, x, y):
-        # GtkGestureDrag fires this on *every* button press, a plain click
-        # included, so the current selection must survive until the pointer
-        # really moves — an Alt-click inside a selection has to still see it.
-        # (PDFKit needed the same care; the macOS view snapshots the selection
-        # at mouse-down for exactly this reason.)
-        self._dragging = False
-
-    def _on_drag_update(self, gesture, dx, dy):
-        if not self._dragging:
-            if abs(dx) < DRAG_THRESHOLD and abs(dy) < DRAG_THRESHOLD:
-                return
-            self._dragging = True
-        ok, sx, sy = gesture.get_start_point()
-        if ok:
-            self._update_selection(sx, sy, sx + dx, sy + dy)
-
-    def _on_drag_end(self, gesture, dx, dy):
-        if not self._dragging:
-            return
-        self._dragging = False
-        ok, sx, sy = gesture.get_start_point()
-        if ok:
-            self._update_selection(sx, sy, sx + dx, sy + dy)
 
     def _update_selection(self, x0, y0, x1, y1) -> None:
         start = self.canvas.point_to_page(x0, y0)
@@ -429,6 +447,7 @@ class PdfView(Gtk.ScrolledWindow):
         self.canvas.selection_boxes = boxes
         self.canvas.queue_draw()
         text = " ".join(texts).strip()
+        _debug("selection: %d words %r", len(boxes), text[:60])
         if text:
             self.selection = (text, start[0], (start[1], start[2]),
                               end[0], (end[1], end[2]))
@@ -449,6 +468,8 @@ class PdfView(Gtk.ScrolledWindow):
             return
 
         nearby = page.text_in_band(py) or None
+        _debug("click page %d at (%.1f, %.1f) option=%s selection=%s",
+               index + 1, px, py, option, bool(self.selection))
 
         if (option or force_selection) and not ignore_selection and self.selection:
             text, start_page, start_pt, end_page, end_pt = self.selection

@@ -153,6 +153,13 @@ class PDFDocument:
             return self.pages[index]
         return None
 
+    @property
+    def has_text(self) -> bool:
+        """False for a PDF poppler cannot extract words from (a scan, or fonts
+        with no ToUnicode map). Clicks still map through SyncTeX, but sentence
+        and selection editing need the word boxes."""
+        return any(page.words for page in self.pages)
+
     # -- geometry ----------------------------------------------------------
 
     def _load_geometry(self) -> None:

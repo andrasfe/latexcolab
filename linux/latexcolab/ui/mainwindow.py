@@ -560,6 +560,15 @@ class MainWindow(Adw.ApplicationWindow):
             self.banner_log.set_visible(False)
             self.banner_retry.set_visible(False)
             self.banner.set_visible(True)
+        elif (model.preview_document is not None
+              and not model.preview_document.has_text):
+            self.banner_label.set_text(
+                "No extractable text in this PDF — click a paragraph to edit it, but "
+                "sentence and selection editing are unavailable.")
+            self.banner.add_css_class("warning")
+            self.banner_log.set_visible(False)
+            self.banner_retry.set_visible(False)
+            self.banner.set_visible(True)
         elif model.preview_is_main and model.preview_document is not None:
             self.banner_label.set_text(_HINT)
             self.banner_log.set_visible(False)
