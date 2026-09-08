@@ -163,6 +163,19 @@ class PdfViewGestureTests(unittest.TestCase):
         self.view.context_edit(MODE_PARAGRAPH)
         self.assertEqual(self.clicks[-1][4][0], MODE_PARAGRAPH)
 
+    def test_clear_selection_drops_the_highlight(self):
+        self.drag(self.widget_point(self.word("every")),
+                  self.widget_point(self.word("projection"), at_end=True))
+        self.assertIsNotNone(self.view.selection)
+        self.view.clear_selection()
+        self.assertIsNone(self.view.selection)
+        self.assertEqual(self.view.canvas.selection_boxes, [])
+        # …and an Alt-click then falls back to the sentence.
+        x, y = self.widget_point(self.word("post-study"))
+        self.press(x, y, alt=True)
+        self.release(x, y)
+        self.assertEqual(self.clicks[-1][4][0], MODE_SENTENCE)
+
     def test_a_click_that_twitches_is_still_a_click(self):
         x, y = self.widget_point(self.word("witness"))
         self.press(x, y)

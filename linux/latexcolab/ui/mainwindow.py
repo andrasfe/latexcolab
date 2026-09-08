@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from ..core.compiler import INSTALL_HELP
 from ..model import BUSY, ERROR, OK, VIEW_EDITOR, VIEW_PDF, AppModel
@@ -72,9 +72,21 @@ class MainWindow(Adw.ApplicationWindow):
         # equivalent here is the window regaining focus.
         self.connect("notify::is-active", self._on_active)
 
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(keys)
+
         self._pdf_version = -1
         self._focus_id = -1
         self._refresh_all()
+
+    def _on_key_pressed(self, _controller, keyval, _keycode, _state) -> bool:
+        """Escape drops the PDF selection, and only then — anything else in the
+        window that wants Escape still gets it."""
+        if keyval == Gdk.KEY_Escape and self.pdf_view.selection is not None:
+            self.pdf_view.clear_selection()
+            return True
+        return False
 
     def _on_active(self, *_args) -> None:
         if self.is_active() and self.model.project_path:

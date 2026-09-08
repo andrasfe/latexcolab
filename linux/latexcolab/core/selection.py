@@ -89,9 +89,9 @@ def pdf_words(text: str) -> list[str]:
     return out
 
 
-def _align(p: list[str], s: list[SourceWord]) -> list[int]:
-    """Longest common subsequence of PDF words against source words;
-    returns the matched source indices in order."""
+def _align(p: list[str], s: list[SourceWord]) -> list[tuple[int, int]]:
+    """Longest common subsequence of PDF words against source words, as
+    ``(pdf index, source index)`` pairs in order."""
     n, m = len(p), len(s)
     if n == 0 or m == 0 or n * m > 4_000_000:
         return []
@@ -110,10 +110,10 @@ def _align(p: list[str], s: list[SourceWord]) -> list[int]:
                 b = table[row + j + 1]
                 table[row + j] = a if a > b else b
     i = j = 0
-    matched: list[int] = []
+    matched: list[tuple[int, int]] = []
     while i < n and j < m:
         if p[i] == keys[j]:
-            matched.append(j)
+            matched.append((i, j))
             i += 1
             j += 1
         elif table[(i + 1) * w + j] >= table[i * w + j + 1]:
@@ -121,6 +121,56 @@ def _align(p: list[str], s: list[SourceWord]) -> list[int]:
         else:
             j += 1
     return matched
+
+
+def _densest_run(matched: list[tuple[int, int]],
+                 penalty: float = 0.5) -> list[tuple[int, int]]:
+    """Drop stray matches far from the body of the alignment.
+
+    The LCS happily matches a common word ("of", "the", "legacy") near the top
+    of the paragraph and another near the bottom, which stretches the span over
+    text the author never selected. Keep instead the run of matches scoring
+    best on *matches − penalty × words in between that were not selected*, so
+    an outlier only survives when it brings enough company.
+    """
+    if len(matched) < 3:
+        return matched
+    best_score = float("-inf")
+    best = (0, len(matched) - 1)
+    for a in range(len(matched)):
+        for b in range(a, len(matched)):
+            count = b - a + 1
+            interlopers = (matched[b][1] - matched[a][1] + 1) - count
+            score = count - penalty * interlopers
+            if score > best_score:
+                best_score = score
+                best = (a, b)
+    return matched[best[0]:best[1] + 1]
+
+
+def _extend_edges(matched: list[tuple[int, int]], p: list[str],
+                  s: list[SourceWord]) -> list[tuple[int, int]]:
+    """Take back the words the trim gave away.
+
+    A word at the edge of the selection can be aligned to an earlier or later
+    twin of itself, so trimming drops it. Where the source word next to the run
+    is exactly the PDF word next to it, it belongs to the selection: walk out
+    from both ends for as long as that holds.
+    """
+    if not matched:
+        return matched
+    out = list(matched)
+    pdf_i, src_i = out[0]
+    while pdf_i > 0 and src_i > 0 and s[src_i - 1].key == p[pdf_i - 1]:
+        pdf_i -= 1
+        src_i -= 1
+        out.insert(0, (pdf_i, src_i))
+    pdf_j, src_j = out[-1]
+    while pdf_j + 1 < len(p) and src_j + 1 < len(s) and s[src_j + 1].key == p[pdf_j + 1]:
+        pdf_j += 1
+        src_j += 1
+        out.append((pdf_j, src_j))
+    return out
 
 
 def _tidy(rng: Range, s: str, pdf_text: str | None) -> Range:
@@ -208,7 +258,8 @@ def source_range_for_pdf_text(pdf_text: str, container: str) -> Range | None:
     matched = _align(p, s)
     if len(matched) < 0.6 * len(p) or not matched:
         return None
-    first, last = matched[0], matched[-1]
+    matched = _extend_edges(_densest_run(matched), p, s)
+    first, last = matched[0][1], matched[-1][1]
     start = s[first].range[0]
     end = s[last].range[0] + s[last].range[1]
     return _tidy((start, end - start), container, pdf_text)
